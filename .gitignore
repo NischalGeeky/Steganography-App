@@ -3,3 +3,5 @@ target/
 *.class
 *.log
 .DS_Store
+encrypted_text.txt
+keys.enc

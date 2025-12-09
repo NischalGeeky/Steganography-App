@@ -12,12 +12,15 @@ import java.security.*;
 
 public class FileEncryptor {
 
+    
+    private static final String KEY_FILE = "keys.enc";
+    private static final String ENC_FILE = "encrypted_text.txt";
+    private static final String MESSAGE_FILE = "message.txt";
 
     public static void main(String[] args) {
         try {
             // 1. Read file
-            String filePath = "message.txt";
-            String content = new String(Files.readAllBytes(Paths.get(filePath)));
+            String content = new String(Files.readAllBytes(Paths.get(MESSAGE_FILE)));
 
             System.out.println("--- Original Text ---");
             System.out.println(content);
@@ -53,20 +56,30 @@ public class FileEncryptor {
 
             System.out.println("\n--- Final Encrypted Message ---");
             System.out.println(finalOutput.toString().trim());
+            Files.write(Paths.get(ENC_FILE), finalOutput.toString().trim().getBytes());
+
+            String keysOut="";
 
             // 4. Get ECC public key (receiver)
             KeyPair pub = ECCManager.generateECCKeyPair();
             PublicKey receiverPub = pub.getPublic();
+            PrivateKey receiverPriv = pub.getPrivate();
+
+            keysOut+=receiverPub.toString()+"\n"+receiverPriv.toString()+"\n";
 
             // 5. Hybrid-encrypt BOTH session keys
             String hybridAES = HybridEncryptor.encryptAESKey(aesKey, receiverPub);
             String hybridVigenere = HybridEncryptor.encryptAESKey(vigenereKey, receiverPub);
+
 
             System.out.println("\n--- Hybrid Encrypted AES Key ---");
             System.out.println(hybridAES);
 
             System.out.println("\n--- Hybrid Encrypted Vigenere Key ---");
             System.out.println(hybridVigenere);
+            
+            keysOut+=hybridAES+"\n"+hybridVigenere+"\n";
+            Files.write(Paths.get(KEY_FILE), keysOut.getBytes());
 
         } catch (Exception e) {
             e.printStackTrace();

@@ -8,6 +8,7 @@ import java.util.Base64;
 
 public class ECCManager {
 
+
     // 1. Generate a fresh Pair of Keys (Public & Private)
     public static KeyPair generateECCKeyPair() throws Exception {
         KeyPairGenerator keyGen = KeyPairGenerator.getInstance("EC");
@@ -34,6 +35,20 @@ public class ECCManager {
         KeyFactory keyFactory = KeyFactory.getInstance("EC");
         return keyFactory.generatePrivate(new PKCS8EncodedKeySpec(byteKey));
     }
+
+
+    public static KeyPair generateKeyPairAndPrint() throws Exception {
+        KeyPair pair = generateECCKeyPair();
+
+        System.out.println("--- Public Key ---");
+        System.out.println(keyToString(pair.getPublic()));
+
+        System.out.println("--- Private Key ---");
+        System.out.println(keyToString(pair.getPrivate()));
+
+        return pair;
+    }
+
 
     // --- Main Method for Testing ---
     public static void main(String[] args) {

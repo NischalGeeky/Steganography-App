@@ -26,7 +26,8 @@ public class Main {
             System.out.println(content);
 
             // 3. Encrypt text
-            Output output =  FileEncryptor.encryptText(content, ENC_FILE);
+            Output output =  FileEncryptor.encryptText(content);
+            Files.write(Paths.get(ENC_FILE), output.finalOutput.getBytes());
 
             // 4. Get ECC keys (receiver)
             KeyPair pub = ECCManager.generateECCKeyPair();

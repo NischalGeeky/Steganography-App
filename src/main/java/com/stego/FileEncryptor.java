@@ -1,8 +1,5 @@
 package com.stego;
 
-import java.nio.file.Files;
-import java.nio.file.Paths;
-import javax.crypto.KeyGenerator;
 import java.util.Base64;
 import javax.crypto.Cipher;
 import javax.crypto.spec.IvParameterSpec;
@@ -26,7 +23,7 @@ public class FileEncryptor {
         }
     }
 
-    public static Output encryptText(String content, String outputFile) throws Exception{
+    public static Output encryptText(String content) throws Exception{
             StringBuilder finalOutput = new StringBuilder();
             String[] words = content.split("\\s+");
 
@@ -57,7 +54,6 @@ public class FileEncryptor {
 
             System.out.println("\n--- Final Encrypted Message ---");
             System.out.println(finalOutput.toString().trim());
-            Files.write(Paths.get(outputFile), finalOutput.toString().trim().getBytes());
 
             return new Output(finalOutput.toString().trim(), aesKey, vigenereKey);
 

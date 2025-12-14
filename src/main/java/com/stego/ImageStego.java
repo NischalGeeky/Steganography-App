@@ -3,69 +3,156 @@ package com.stego;
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.File;
+import java.nio.charset.StandardCharsets;
 
-public class ImageStego {
-        public static void encode(String inputImage, String outputImage, String message) throws Exception {
-            BufferedImage img = ImageIO.read(new File(inputImage));
+public class ImageStego{
 
-            byte[] msgBytes = message.getBytes();
-            int msgLen = msgBytes.length;
+    private static final int BLOCK = 8;
+    private static final int U = 3;
+    private static final int V = 4;
 
-            int width = img.getWidth();
-            int height = img.getHeight();
-            int capacity = width * height * 3;  // 3 bits per pixel (R,G,B)
+    public static void encode(String inputImage, String outputImage, String message) throws Exception {
+        BufferedImage img = ImageIO.read(new File(inputImage));
+        BufferedImage gray = toGrayscale(img);
 
-            if (msgLen * 8 + 32 > capacity) {
-                throw new RuntimeException("Message too big to hide in this image!");
-            }
+        byte[] msg = message.getBytes(StandardCharsets.UTF_8);
+        int totalBits = msg.length * 8 + 32;
 
-            // Convert message length to 32 bits
-            int bitIndex = 0;
+        int blocksX = gray.getWidth() / BLOCK;
+        int blocksY = gray.getHeight() / BLOCK;
 
-            // Encode length first (32 bits)
-            for (int i = 31; i >= 0; i--) {
-                int bit = (msgLen >>> i) & 1;
-                writeBit(img, bitIndex++, bit);
-            }
-
-            // Encode message bits
-            for (byte b : msgBytes) {
-                for (int i = 7; i >= 0; i--) {
-                    int bit = (b >>> i) & 1;
-                    writeBit(img, bitIndex++, bit);
-                }
-            }
-
-            ImageIO.write(img, "png", new File(outputImage));
-            System.out.println("Message hidden inside: " + outputImage);
+        if (totalBits > blocksX * blocksY) {
+            throw new RuntimeException("Message too large for image");
         }
 
-     private static void writeBit(BufferedImage img, int bitIndex, int bit) {
-        int width = img.getWidth();
+        int bitIndex = 0;
 
-        // Each pixel carries 3 bits (R,G,B) => compute pixel index
-        int pixelIndex = bitIndex / 3;
-        int channel = bitIndex % 3; // 0->R, 1->G, 2->B
-
-        int x = pixelIndex % width;
-        int y = pixelIndex / width;
-
-        int rgb = img.getRGB(x, y);
-        int r = (rgb >> 16) & 0xFF;
-        int g = (rgb >> 8) & 0xFF;
-        int b = rgb & 0xFF;
-
-        if (channel == 0) {
-            r = (r & 0xFE) | (bit & 1);
-        } else if (channel == 1) {
-            g = (g & 0xFE) | (bit & 1);
-        } else {
-            b = (b & 0xFE) | (bit & 1);
+        for (int i = 31; i >= 0; i--) {
+            int bit = (msg.length >>> i) & 1;
+            embedNextBit(gray, bitIndex++, bit);
         }
 
-        int newRGB = (r << 16) | (g << 8) | b;
-        img.setRGB(x, y, newRGB);
+        for (byte b : msg) {
+            for (int i = 7; i >= 0; i--) {
+                int bit = (b >>> i) & 1;
+                embedNextBit(gray, bitIndex++, bit);
+            }
+        }
+
+        ImageIO.write(gray, "png", new File(outputImage));
+        System.out.println("DCT stego written to: " + outputImage);
     }
 
+    private static void embedNextBit(BufferedImage img, int bitIndex, int bit) {
+        int blocksPerRow = img.getWidth() / BLOCK;
 
+        int blockX = bitIndex % blocksPerRow;
+        int blockY = bitIndex / blocksPerRow;
+
+        double[][] block = getBlock(img, blockX * BLOCK, blockY * BLOCK);
+        shift(block, -128);
+
+        double[][] dct = dct(block);
+        embedBit(dct, bit);
+
+        double[][] idct = idct(dct);
+        shift(idct, 128);
+
+        writeBlock(img, blockX * BLOCK, blockY * BLOCK, idct);
+    }
+
+    private static void embedBit(double[][] dct, int bit) {
+        int coeff = (int) Math.round(dct[U][V]);
+        if ((coeff & 1) != bit) {
+            coeff += (coeff >= 0) ? 1 : -1;
+        }
+        dct[U][V] = coeff;
+    }
+
+    // ===================== DCT =====================
+    private static double[][] dct(double[][] block) {
+        double[][] out = new double[BLOCK][BLOCK];
+
+        for (int u = 0; u < BLOCK; u++) {
+            for (int v = 0; v < BLOCK; v++) {
+                double sum = 0;
+                for (int x = 0; x < BLOCK; x++) {
+                    for (int y = 0; y < BLOCK; y++) {
+                        sum += block[x][y] *
+                                Math.cos((2 * x + 1) * u * Math.PI / 16) *
+                                Math.cos((2 * y + 1) * v * Math.PI / 16);
+                    }
+                }
+                double cu = (u == 0) ? 1 / Math.sqrt(2) : 1;
+                double cv = (v == 0) ? 1 / Math.sqrt(2) : 1;
+                out[u][v] = 0.25 * cu * cv * sum;
+            }
+        }
+        return out;
+    }
+
+    private static double[][] idct(double[][] block) {
+        double[][] out = new double[BLOCK][BLOCK];
+
+        for (int x = 0; x < BLOCK; x++) {
+            for (int y = 0; y < BLOCK; y++) {
+                double sum = 0;
+                for (int u = 0; u < BLOCK; u++) {
+                    for (int v = 0; v < BLOCK; v++) {
+                        double cu = (u == 0) ? 1 / Math.sqrt(2) : 1;
+                        double cv = (v == 0) ? 1 / Math.sqrt(2) : 1;
+                        sum += cu * cv * block[u][v] *
+                                Math.cos((2 * x + 1) * u * Math.PI / 16) *
+                                Math.cos((2 * y + 1) * v * Math.PI / 16);
+                    }
+                }
+                out[x][y] = 0.25 * sum;
+            }
+        }
+        return out;
+    }
+
+    // ===================== IMAGE HELPERS =====================
+    private static double[][] getBlock(BufferedImage img, int sx, int sy) {
+        double[][] block = new double[BLOCK][BLOCK];
+        for (int x = 0; x < BLOCK; x++) {
+            for (int y = 0; y < BLOCK; y++) {
+                int rgb = img.getRGB(sx + x, sy + y);
+                block[x][y] = rgb & 0xFF;
+            }
+        }
+        return block;
+    }
+
+    private static void writeBlock(BufferedImage img, int sx, int sy, double[][] block) {
+        for (int x = 0; x < BLOCK; x++) {
+            for (int y = 0; y < BLOCK; y++) {
+                int v = clamp((int) Math.round(block[x][y]));
+                int rgb = (v << 16) | (v << 8) | v;
+                img.setRGB(sx + x, sy + y, rgb);
+            }
+        }
+    }
+
+    private static void shift(double[][] block, int v) {
+        for (int x = 0; x < BLOCK; x++)
+            for (int y = 0; y < BLOCK; y++)
+                block[x][y] += v;
+    }
+
+    private static int clamp(int v) {
+        return Math.max(0, Math.min(255, v));
+    }
+
+    private static BufferedImage toGrayscale(BufferedImage img) {
+        BufferedImage g = new BufferedImage(
+                img.getWidth(), img.getHeight(),
+                BufferedImage.TYPE_BYTE_GRAY
+        );
+        g.getGraphics().drawImage(img, 0, 0, null);
+        return g;
+    }
 }
+
+
+

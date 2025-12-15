@@ -1,0 +1,10 @@
+target/
+.vscode/
+dataset/
+images/
+*.class
+*.log
+.DS_Store
+encrypted_text.txt
+keys.enc
+output.png

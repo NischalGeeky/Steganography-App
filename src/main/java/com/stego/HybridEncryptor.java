@@ -1,40 +1,40 @@
 package com.stego;
 
-import javax.crypto.KeyAgreement;
-import javax.crypto.SecretKey;
-import javax.crypto.spec.SecretKeySpec;
-import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.Cipher;
-
-import java.security.KeyPair;
+import javax.crypto.SecretKey;
+import javax.crypto.spec.IvParameterSpec;
+import javax.crypto.spec.SecretKeySpec;
 import java.security.PublicKey;
 import java.util.Base64;
+import java.security.SecureRandom;
 
 public class HybridEncryptor {
 
-    public static String encryptAESKey(String aesKey, PublicKey receiverPubKey) throws Exception {
+    // Updated to use Kyber (Lattice) Public Key instead of ECC
+    public static String encryptAESKey(String targetKeyToHide, PublicKey receiverPubKey) throws Exception {
+        
+        // 1. Generate a temporary random AES "Session Key"
+        byte[] sessionKeyBytes = new byte[16];
+        new SecureRandom().nextBytes(sessionKeyBytes);
+        SecretKey sessionKey = new SecretKeySpec(sessionKeyBytes, "AES");
 
-        KeyPair ephemeral = ECCManager.generateECCKeyPair();
+        // 2. Encrypt (Wrap) this Session Key using Kyber (Lattice Logic)
+        // We use the "KYBER" algorithm from the BCPQC provider
+        Cipher kyberCipher = Cipher.getInstance("KYBER", "BCPQC");
+        kyberCipher.init(Cipher.WRAP_MODE, receiverPubKey);
+        byte[] wrappedSessionKey = kyberCipher.wrap(sessionKey);
 
-        KeyAgreement ka = KeyAgreement.getInstance("ECDH");
-        ka.init(ephemeral.getPrivate());
-        ka.doPhase(receiverPubKey, true);
-        byte[] sharedSecret = ka.generateSecret();
+        // 3. Encrypt the Target Data (Your Vigenere/AES key) using the Session Key
+        Cipher aesCipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
+        IvParameterSpec iv = new IvParameterSpec(new byte[16]); 
+        aesCipher.init(Cipher.ENCRYPT_MODE, sessionKey, iv);
+        
+        byte[] encryptedTargetData = aesCipher.doFinal(targetKeyToHide.getBytes());
 
-        byte[] aesBytes = new byte[16];
-        System.arraycopy(sharedSecret, 1, aesBytes, 0, 16);
-        SecretKey sharedAESKey = new SecretKeySpec(aesBytes, "AES");
+        // 4. Return Format: WRAPPED_KEY : ENCRYPTED_DATA
+        String wrappedKeyB64 = Base64.getEncoder().encodeToString(wrappedSessionKey);
+        String encryptedDataB64 = Base64.getEncoder().encodeToString(encryptedTargetData);
 
-        Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
-        IvParameterSpec iv = new IvParameterSpec(new byte[16]);  // Zero IV (demo)
-        cipher.init(Cipher.ENCRYPT_MODE, sharedAESKey, iv);
-
-        byte[] encryptedAESKey = cipher.doFinal(aesKey.getBytes());
-        String encryptedKeyB64 = Base64.getEncoder().encodeToString(encryptedAESKey);
-
-        String ephemeralPubStr = ECCManager.keyToString(ephemeral.getPublic());
-
-        return ephemeralPubStr + ":" + encryptedKeyB64;
+        return wrappedKeyB64 + ":" + encryptedDataB64;
     }
 }
-

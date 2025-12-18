@@ -8,7 +8,10 @@ public class ImageStego {
 
     private static final int N = 8; // 8x8 Blocks
     
-    // We use 8 distinct mid-frequency spots to hide 1 byte (8 bits) per block
+    // Increased Robustness: We modify coefficients by this amount to survive rounding errors.
+    // A value of 20 ensures the bit survives the double -> int -> double conversion.
+    private static final int PERSISTENCE = 20; 
+
     private static final int[] COEFF_X = {3, 4, 3, 4, 2, 5, 2, 5};
     private static final int[] COEFF_Y = {3, 3, 4, 4, 2, 2, 5, 5};
 
@@ -23,7 +26,6 @@ public class ImageStego {
         byte[] msgBytes = message.getBytes();
         int len = msgBytes.length;
         
-        // Protocol: [4 bytes Length] + [Message]
         byte[] data = new byte[4 + len];
         data[0] = (byte) ((len >> 24) & 0xFF);
         data[1] = (byte) ((len >> 16) & 0xFF);
@@ -31,30 +33,26 @@ public class ImageStego {
         data[3] = (byte) (len & 0xFF);
         System.arraycopy(msgBytes, 0, data, 4, len);
 
-        // Capacity Check
-        int maxBytes = (width / N) * (height / N); // 1 byte per block
+        int maxBytes = (width / N) * (height / N);
         if (data.length > maxBytes) {
-            throw new RuntimeException("Message too long! Need larger image or shorter text.");
+            throw new RuntimeException("Message too long! Need larger image.");
         }
 
         int byteIndex = 0;
         int bitIndex = 0;
 
-        // Iterate over blocks
         for (int y = 0; y <= height - N; y += N) {
             for (int x = 0; x <= width - N; x += N) {
                 if (byteIndex >= data.length) break;
 
-                // 1. Get Blue Channel & Apply DCT
                 double[][] blueBlock = getBlueLayer(img, x, y);
                 double[][] dctBlock = applyDCT(blueBlock);
 
-                // 2. Embed 8 bits (1 byte) into this block
                 for (int k = 0; k < 8; k++) {
                     if (byteIndex >= data.length) break;
 
                     int bit = (data[byteIndex] >> (7 - bitIndex)) & 1;
-                    embedBit(dctBlock, COEFF_X[k], COEFF_Y[k], bit);
+                    embedBitRobust(dctBlock, COEFF_X[k], COEFF_Y[k], bit);
 
                     bitIndex++;
                     if (bitIndex == 8) {
@@ -63,7 +61,6 @@ public class ImageStego {
                     }
                 }
 
-                // 3. Inverse DCT & Save
                 double[][] idctBlock = applyIDCT(dctBlock);
                 setBlueLayer(img, x, y, idctBlock);
             }
@@ -72,7 +69,6 @@ public class ImageStego {
         System.out.println("✅ DCT Stego: Saved to " + outputImage);
     }
 
-    // --- DECODE METHOD (Added so Receiver can read the message) ---
     public static String decode(String inputImage) throws Exception {
         BufferedImage img = ImageIO.read(new File(inputImage));
         int width = img.getWidth();
@@ -92,7 +88,7 @@ public class ImageStego {
                 double[][] dctBlock = applyDCT(blueBlock);
 
                 for (int k = 0; k < 8; k++) {
-                    int bit = extractBit(dctBlock, COEFF_X[k], COEFF_Y[k]);
+                    int bit = extractBitRobust(dctBlock, COEFF_X[k], COEFF_Y[k]);
                     currentByte = (currentByte << 1) | bit;
                     bitIndex++;
 
@@ -104,8 +100,13 @@ public class ImageStego {
                             if (byteIndex == 3) {
                                 len |= currentByte;
                                 readingLen = false;
+                                
+                                // Validate Length to prevent crash
+                                if (len <= 0 || len > 200000) { 
+                                    System.err.println("⚠️ Error: Corruption detected in image header.");
+                                    return ""; 
+                                }
                                 data = new byte[len];
-                                if (len <= 0 || len > 100000) return ""; 
                             }
                         } else {
                             if (byteIndex - 4 < len) {
@@ -126,7 +127,33 @@ public class ImageStego {
         return (data != null) ? new String(data) : "";
     }
 
-    // --- MATH HELPERS (DCT) ---
+    // --- ROBUST EMBEDDING LOGIC (Quantization) ---
+    private static void embedBitRobust(double[][] dct, int u, int v, int bit) {
+        double val = dct[u][v];
+        
+        // We quantize the value to the nearest multiple of PERSISTENCE
+        // If we want to hide '0', we force it to an EVEN multiple
+        // If we want to hide '1', we force it to an ODD multiple
+        
+        double quantized = Math.round(val / PERSISTENCE);
+        int parity = (int) Math.abs(quantized) % 2;
+        
+        if (parity != bit) {
+            // Move to the nearest neighbor with correct parity
+            if (val > 0) quantized += 1; // e.g. 4 becomes 5
+            else quantized -= 1;
+        }
+        
+        dct[u][v] = quantized * PERSISTENCE;
+    }
+    
+    private static int extractBitRobust(double[][] dct, int u, int v) {
+        double val = dct[u][v];
+        double quantized = Math.round(val / PERSISTENCE);
+        return (int) Math.abs(quantized) % 2;
+    }
+
+    // --- STANDARD MATH HELPERS ---
     private static double[][] getBlueLayer(BufferedImage img, int startX, int startY) {
         double[][] block = new double[N][N];
         for (int y = 0; y < N; y++) {
@@ -184,18 +211,5 @@ public class ImageStego {
             }
         }
         return matrix;
-    }
-
-    private static void embedBit(double[][] dct, int x, int y, int bit) {
-        int val = (int) dct[x][y];
-        val = (val / 2) * 2 + bit; 
-        if (bit == 1 && val % 2 == 0) val++;
-        if (bit == 0 && val % 2 != 0) val--;
-        dct[x][y] = val;
-    }
-    
-    private static int extractBit(double[][] dct, int x, int y) {
-        int val = (int) Math.round(dct[x][y]);
-        return Math.abs(val) % 2;
     }
 }

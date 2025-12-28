@@ -14,6 +14,11 @@ public class ImageStego {
 
     private static final int[] COEFF_X = {3, 4, 3, 4, 2, 5, 2, 5};
     private static final int[] COEFF_Y = {3, 3, 4, 4, 2, 2, 5, 5};
+    
+    // Texture-Adaptive Masking threshold
+    // Blocks with variance < THRESHOLD are considered "smooth" and skipped to avoid visible artifacts
+    // Reference: ACM TOMM 2024 - "Enhancing Adversarial Embedding"
+    private static final double VARIANCE_THRESHOLD = 200.0;
 
     public static void encode(String inputImage, String outputImage, String message) throws Exception {
         File f = new File(inputImage);
@@ -47,6 +52,12 @@ public class ImageStego {
 
                 double[][] blueBlock = getBlueLayer(img, x, y);
                 double[][] dctBlock = applyDCT(blueBlock);
+                
+                // Texture-Adaptive Masking: Skip smooth blocks to avoid visible artifacts
+                double variance = getBlockVariance(dctBlock);
+                if (variance < VARIANCE_THRESHOLD) {
+                    continue; // Skip this smooth block
+                }
 
                 for (int k = 0; k < 8; k++) {
                     if (byteIndex >= data.length) break;
@@ -86,6 +97,12 @@ public class ImageStego {
                 
                 double[][] blueBlock = getBlueLayer(img, x, y);
                 double[][] dctBlock = applyDCT(blueBlock);
+                
+                // Texture-Adaptive Masking: Skip smooth blocks (same as encoding)
+                double variance = getBlockVariance(dctBlock);
+                if (variance < VARIANCE_THRESHOLD) {
+                    continue; // Skip this smooth block
+                }
 
                 for (int k = 0; k < 8; k++) {
                     int bit = extractBitRobust(dctBlock, COEFF_X[k], COEFF_Y[k]);
@@ -127,6 +144,44 @@ public class ImageStego {
         return (data != null) ? new String(data) : "";
     }
 
+    /**
+     * Calculates the variance of DCT coefficients in a block.
+     * High variance indicates textured areas (good for embedding).
+     * Low variance indicates smooth areas (should be skipped to avoid visible artifacts).
+     * Reference: ACM TOMM 2024 - "Enhancing Adversarial Embedding"
+     * 
+     * @param dctBlock The DCT-transformed 8x8 block
+     * @return Variance of the DCT coefficients
+     */
+    private static double getBlockVariance(double[][] dctBlock) {
+        // Calculate mean of DCT coefficients (excluding DC component at [0][0])
+        double sum = 0.0;
+        int count = 0;
+        for (int u = 0; u < N; u++) {
+            for (int v = 0; v < N; v++) {
+                if (u != 0 || v != 0) { // Exclude DC component
+                    sum += Math.abs(dctBlock[u][v]);
+                    count++;
+                }
+            }
+        }
+        if (count == 0) return 0.0;
+        double mean = sum / count;
+        
+        // Calculate variance
+        double sumSqDiff = 0.0;
+        for (int u = 0; u < N; u++) {
+            for (int v = 0; v < N; v++) {
+                if (u != 0 || v != 0) {
+                    double diff = Math.abs(dctBlock[u][v]) - mean;
+                    sumSqDiff += diff * diff;
+                }
+            }
+        }
+        
+        return sumSqDiff / count;
+    }
+    
     // --- ROBUST EMBEDDING LOGIC (Quantization) ---
     private static void embedBitRobust(double[][] dct, int u, int v, int bit) {
         double val = dct[u][v];

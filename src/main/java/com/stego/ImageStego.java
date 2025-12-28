@@ -24,6 +24,14 @@ public class ImageStego {
     private static final double VARIANCE_THRESHOLD = 200.0;
     
     /**
+     * Color channel constants for split-payload orchestration
+     * Reference: ACM CCS 2025 - "Split Unlearning"
+     */
+    public static final String CHANNEL_RED = "RED";
+    public static final String CHANNEL_GREEN = "GREEN";
+    public static final String CHANNEL_BLUE = "BLUE";
+    
+    /**
      * Block coordinates for sparse randomized sampling
      */
     private static class BlockCoord {
@@ -43,7 +51,16 @@ public class ImageStego {
         return seed;
     }
 
-    public static void encode(String inputImage, String outputImage, String message, String vigenereKey) throws Exception {
+    /**
+     * Encodes a message into an image using the specified color channel.
+     * 
+     * @param inputImage Input image path
+     * @param outputImage Output stego image path
+     * @param message Message to embed
+     * @param vigenereKey Key for deterministic randomization
+     * @param channel Color channel to use: "RED", "GREEN", or "BLUE" (default: "BLUE")
+     */
+    public static void encode(String inputImage, String outputImage, String message, String vigenereKey, String channel) throws Exception {
         File f = new File(inputImage);
         if (!f.exists()) throw new RuntimeException("Image not found: " + inputImage);
         
@@ -71,8 +88,9 @@ public class ImageStego {
         List<BlockCoord> blockCoords = new ArrayList<>();
         for (int y = 0; y <= height - N; y += N) {
             for (int x = 0; x <= width - N; x += N) {
-                double[][] blueBlock = getBlueLayer(img, x, y);
-                double[][] dctBlock = applyDCT(blueBlock);
+                // Use BLUE channel for variance calculation (same channel used for encoding)
+                double[][] testBlock = getChannelLayer(img, x, y, CHANNEL_BLUE);
+                double[][] dctBlock = applyDCT(testBlock);
                 
                 // Texture-Adaptive Masking: Only include textured blocks
                 double variance = getBlockVariance(dctBlock);
@@ -99,8 +117,8 @@ public class ImageStego {
         for (BlockCoord coord : blockCoords) {
             if (byteIndex >= data.length) break;
 
-            double[][] blueBlock = getBlueLayer(img, coord.x, coord.y);
-            double[][] dctBlock = applyDCT(blueBlock);
+            double[][] channelBlock = getChannelLayer(img, coord.x, coord.y, channel);
+            double[][] dctBlock = applyDCT(channelBlock);
 
             for (int k = 0; k < 8; k++) {
                 if (byteIndex >= data.length) break;
@@ -116,13 +134,21 @@ public class ImageStego {
             }
 
             double[][] idctBlock = applyIDCT(dctBlock);
-            setBlueLayer(img, coord.x, coord.y, idctBlock);
+            setChannelLayer(img, coord.x, coord.y, idctBlock, channel);
         }
         ImageIO.write(img, "png", new File(outputImage));
         System.out.println("✅ DCT Stego: Saved to " + outputImage);
     }
 
-    public static String decode(String inputImage, String vigenereKey) throws Exception {
+    /**
+     * Decodes a message from an image using the specified color channel.
+     * 
+     * @param inputImage Input stego image path
+     * @param vigenereKey Key for deterministic randomization (must match encoding key)
+     * @param channel Color channel to use: "RED", "GREEN", or "BLUE" (default: "BLUE")
+     * @return Decoded message
+     */
+    public static String decode(String inputImage, String vigenereKey, String channel) throws Exception {
         BufferedImage img = ImageIO.read(new File(inputImage));
         int width = img.getWidth();
         int height = img.getHeight();
@@ -132,8 +158,9 @@ public class ImageStego {
         List<BlockCoord> blockCoords = new ArrayList<>();
         for (int y = 0; y <= height - N; y += N) {
             for (int x = 0; x <= width - N; x += N) {
-                double[][] blueBlock = getBlueLayer(img, x, y);
-                double[][] dctBlock = applyDCT(blueBlock);
+                // Use BLUE channel for variance calculation (same as encoding)
+                double[][] testBlock = getChannelLayer(img, x, y, CHANNEL_BLUE);
+                double[][] dctBlock = applyDCT(testBlock);
                 
                 // Texture-Adaptive Masking: Only include textured blocks (same as encoding)
                 double variance = getBlockVariance(dctBlock);
@@ -162,8 +189,8 @@ public class ImageStego {
 
         // Process blocks in same randomized order as encoding
         for (BlockCoord coord : blockCoords) {
-            double[][] blueBlock = getBlueLayer(img, coord.x, coord.y);
-            double[][] dctBlock = applyDCT(blueBlock);
+            double[][] channelBlock = getChannelLayer(img, coord.x, coord.y, channel);
+            double[][] dctBlock = applyDCT(channelBlock);
 
             for (int k = 0; k < 8; k++) {
                 int bit = extractBitRobust(dctBlock, COEFF_X[k], COEFF_Y[k]);
@@ -269,27 +296,88 @@ public class ImageStego {
     }
 
     // --- STANDARD MATH HELPERS ---
-    private static double[][] getBlueLayer(BufferedImage img, int startX, int startY) {
+    
+    /**
+     * Extracts a color channel layer from an image block.
+     * Reference: ACM CCS 2025 - "Split Unlearning"
+     * 
+     * @param img The image
+     * @param startX Starting X coordinate
+     * @param startY Starting Y coordinate
+     * @param channel Color channel: "RED", "GREEN", or "BLUE"
+     * @return 8x8 block of channel values
+     */
+    private static double[][] getChannelLayer(BufferedImage img, int startX, int startY, String channel) {
         double[][] block = new double[N][N];
+        int shift;
+        switch (channel.toUpperCase()) {
+            case "RED":
+                shift = 16;
+                break;
+            case "GREEN":
+                shift = 8;
+                break;
+            case "BLUE":
+            default:
+                shift = 0;
+                break;
+        }
+        
         for (int y = 0; y < N; y++) {
             for (int x = 0; x < N; x++) {
-                block[y][x] = (img.getRGB(startX + x, startY + y) & 0xFF);
+                block[y][x] = (img.getRGB(startX + x, startY + y) >> shift) & 0xFF;
             }
         }
         return block;
     }
 
-    private static void setBlueLayer(BufferedImage img, int startX, int startY, double[][] block) {
+    /**
+     * Sets a color channel layer in an image block.
+     * Reference: ACM CCS 2025 - "Split Unlearning"
+     * 
+     * @param img The image
+     * @param startX Starting X coordinate
+     * @param startY Starting Y coordinate
+     * @param block 8x8 block of channel values
+     * @param channel Color channel: "RED", "GREEN", or "BLUE"
+     */
+    private static void setChannelLayer(BufferedImage img, int startX, int startY, double[][] block, String channel) {
         for (int y = 0; y < N; y++) {
             for (int x = 0; x < N; x++) {
                 int rgb = img.getRGB(startX + x, startY + y);
                 int r = (rgb >> 16) & 0xFF;
                 int g = (rgb >> 8) & 0xFF;
-                int b = (int) Math.round(block[y][x]);
-                if (b < 0) b = 0; if (b > 255) b = 255;
+                int b = rgb & 0xFF;
+                
+                int value = (int) Math.round(block[y][x]);
+                if (value < 0) value = 0;
+                if (value > 255) value = 255;
+                
+                switch (channel.toUpperCase()) {
+                    case "RED":
+                        r = value;
+                        break;
+                    case "GREEN":
+                        g = value;
+                        break;
+                    case "BLUE":
+                    default:
+                        b = value;
+                        break;
+                }
+                
                 img.setRGB(startX + x, startY + y, (r << 16) | (g << 8) | b);
             }
         }
+    }
+    
+    // Backward compatibility: default to BLUE channel
+    public static void encode(String inputImage, String outputImage, String message, String vigenereKey) throws Exception {
+        encode(inputImage, outputImage, message, vigenereKey, CHANNEL_BLUE);
+    }
+    
+    public static String decode(String inputImage, String vigenereKey) throws Exception {
+        return decode(inputImage, vigenereKey, CHANNEL_BLUE);
     }
 
     private static double[][] applyDCT(double[][] matrix) {

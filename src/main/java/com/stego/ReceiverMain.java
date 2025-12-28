@@ -13,16 +13,16 @@ public class ReceiverMain {
         try {
             System.out.println("--- RECEIVER STARTED ---");
 
-            System.out.println("\n--- 1. Extracting Data (DCT) ---");
-            String extractedCiphertext = ImageStego.decode(STEGO_IMAGE);
-            System.out.println("Ciphertext Found: " + extractedCiphertext.substring(0, Math.min(50, extractedCiphertext.length())) + "...");
-
-            System.out.println("\n--- 2. Decrypting Keys (Kyber) ---");
+            System.out.println("\n--- 1. Decrypting Keys (Kyber) ---");
             List<String> keyLines = Files.readAllLines(Paths.get(KEY_FILE));
             PrivateKey latticePriv = LatticeManager.stringToPrivateKey(keyLines.get(1));
 
             String aesKey = HybridDecryptor.decryptSessionKey(keyLines.get(2), latticePriv);
             String vigenereKey = HybridDecryptor.decryptSessionKey(keyLines.get(3), latticePriv);
+            
+            System.out.println("\n--- 2. Extracting Data (DCT) ---");
+            String extractedCiphertext = ImageStego.decode(STEGO_IMAGE, vigenereKey);
+            System.out.println("Ciphertext Found: " + extractedCiphertext.substring(0, Math.min(50, extractedCiphertext.length())) + "...");
             
             System.out.println("Keys Recovered.");
 

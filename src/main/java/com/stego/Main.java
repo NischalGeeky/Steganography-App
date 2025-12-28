@@ -49,7 +49,7 @@ public class Main {
 
             // --- 5. Image Steganography (DCT) ---
             System.out.println("\n--- 5. Embedding Data (DCT) ---");
-            ImageStego.encode(IMAGE_FILE, OUTPUT_IMAGE_FILE, output.finalOutput);
+            ImageStego.encode(IMAGE_FILE, OUTPUT_IMAGE_FILE, output.finalOutput, output.vigenereKey);
             
             System.out.println("\n Done! Check output.png");
 

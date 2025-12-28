@@ -44,9 +44,11 @@ public class DatasetGenerator {
                         // --- THE FIX ---
                         // Previous message was ~28 bytes. Capacity is 32 bytes.
                         // New message is ~5 bytes. Fits easily.
-                        String secretMsg = "AI_" + count; 
+                        String secretMsg = "AI_" + count;
+                        // Use default key for dataset generation
+                        String defaultKey = "DEFAULT";
                         
-                        ImageStego.encode(coverOut.getPath(), stegoOut.getPath(), secretMsg);
+                        ImageStego.encode(coverOut.getPath(), stegoOut.getPath(), secretMsg, defaultKey);
 
                         if (count % 50 == 0) System.out.println("Processed " + count + " pairs...");
                         count++;

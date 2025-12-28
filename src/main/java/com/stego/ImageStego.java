@@ -3,6 +3,9 @@ package com.stego;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import javax.imageio.ImageIO;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Random;
 
 public class ImageStego {
 
@@ -19,8 +22,28 @@ public class ImageStego {
     // Blocks with variance < THRESHOLD are considered "smooth" and skipped to avoid visible artifacts
     // Reference: ACM TOMM 2024 - "Enhancing Adversarial Embedding"
     private static final double VARIANCE_THRESHOLD = 200.0;
+    
+    /**
+     * Block coordinates for sparse randomized sampling
+     */
+    private static class BlockCoord {
+        int x, y;
+        BlockCoord(int x, int y) { this.x = x; this.y = y; }
+    }
+    
+    /**
+     * Generates a deterministic seed from the Vigenère key string.
+     * Reference: USENIX Security 2025 - "SparSamp"
+     */
+    private static long seedFromKey(String key) {
+        long seed = 0;
+        for (char c : key.toCharArray()) {
+            seed = seed * 31 + (long) c;
+        }
+        return seed;
+    }
 
-    public static void encode(String inputImage, String outputImage, String message) throws Exception {
+    public static void encode(String inputImage, String outputImage, String message, String vigenereKey) throws Exception {
         File f = new File(inputImage);
         if (!f.exists()) throw new RuntimeException("Image not found: " + inputImage);
         
@@ -43,47 +66,92 @@ public class ImageStego {
             throw new RuntimeException("Message too long! Need larger image.");
         }
 
-        int byteIndex = 0;
-        int bitIndex = 0;
-
+        // Sparse Randomized Sampling: Generate shuffled block order
+        // Reference: USENIX Security 2025 - "SparSamp"
+        List<BlockCoord> blockCoords = new ArrayList<>();
         for (int y = 0; y <= height - N; y += N) {
             for (int x = 0; x <= width - N; x += N) {
-                if (byteIndex >= data.length) break;
-
                 double[][] blueBlock = getBlueLayer(img, x, y);
                 double[][] dctBlock = applyDCT(blueBlock);
                 
-                // Texture-Adaptive Masking: Skip smooth blocks to avoid visible artifacts
+                // Texture-Adaptive Masking: Only include textured blocks
                 double variance = getBlockVariance(dctBlock);
-                if (variance < VARIANCE_THRESHOLD) {
-                    continue; // Skip this smooth block
+                if (variance >= VARIANCE_THRESHOLD) {
+                    blockCoords.add(new BlockCoord(x, y));
                 }
-
-                for (int k = 0; k < 8; k++) {
-                    if (byteIndex >= data.length) break;
-
-                    int bit = (data[byteIndex] >> (7 - bitIndex)) & 1;
-                    embedBitRobust(dctBlock, COEFF_X[k], COEFF_Y[k], bit);
-
-                    bitIndex++;
-                    if (bitIndex == 8) {
-                        bitIndex = 0;
-                        byteIndex++;
-                    }
-                }
-
-                double[][] idctBlock = applyIDCT(dctBlock);
-                setBlueLayer(img, x, y, idctBlock);
             }
+        }
+        
+        // Shuffle blocks deterministically using Vigenère key as seed
+        long seed = seedFromKey(vigenereKey);
+        Random rand = new Random(seed);
+        for (int i = blockCoords.size() - 1; i > 0; i--) {
+            int j = rand.nextInt(i + 1);
+            BlockCoord temp = blockCoords.get(i);
+            blockCoords.set(i, blockCoords.get(j));
+            blockCoords.set(j, temp);
+        }
+
+        int byteIndex = 0;
+        int bitIndex = 0;
+
+        // Process blocks in randomized order
+        for (BlockCoord coord : blockCoords) {
+            if (byteIndex >= data.length) break;
+
+            double[][] blueBlock = getBlueLayer(img, coord.x, coord.y);
+            double[][] dctBlock = applyDCT(blueBlock);
+
+            for (int k = 0; k < 8; k++) {
+                if (byteIndex >= data.length) break;
+
+                int bit = (data[byteIndex] >> (7 - bitIndex)) & 1;
+                embedBitRobust(dctBlock, COEFF_X[k], COEFF_Y[k], bit);
+
+                bitIndex++;
+                if (bitIndex == 8) {
+                    bitIndex = 0;
+                    byteIndex++;
+                }
+            }
+
+            double[][] idctBlock = applyIDCT(dctBlock);
+            setBlueLayer(img, coord.x, coord.y, idctBlock);
         }
         ImageIO.write(img, "png", new File(outputImage));
         System.out.println("✅ DCT Stego: Saved to " + outputImage);
     }
 
-    public static String decode(String inputImage) throws Exception {
+    public static String decode(String inputImage, String vigenereKey) throws Exception {
         BufferedImage img = ImageIO.read(new File(inputImage));
         int width = img.getWidth();
         int height = img.getHeight();
+
+        // Sparse Randomized Sampling: Generate same shuffled block order as encoding
+        // Reference: USENIX Security 2025 - "SparSamp"
+        List<BlockCoord> blockCoords = new ArrayList<>();
+        for (int y = 0; y <= height - N; y += N) {
+            for (int x = 0; x <= width - N; x += N) {
+                double[][] blueBlock = getBlueLayer(img, x, y);
+                double[][] dctBlock = applyDCT(blueBlock);
+                
+                // Texture-Adaptive Masking: Only include textured blocks (same as encoding)
+                double variance = getBlockVariance(dctBlock);
+                if (variance >= VARIANCE_THRESHOLD) {
+                    blockCoords.add(new BlockCoord(x, y));
+                }
+            }
+        }
+        
+        // Shuffle blocks deterministically using same seed as encoding
+        long seed = seedFromKey(vigenereKey);
+        Random rand = new Random(seed);
+        for (int i = blockCoords.size() - 1; i > 0; i--) {
+            int j = rand.nextInt(i + 1);
+            BlockCoord temp = blockCoords.get(i);
+            blockCoords.set(i, blockCoords.get(j));
+            blockCoords.set(j, temp);
+        }
 
         int len = 0;
         byte[] data = null;
@@ -92,52 +160,44 @@ public class ImageStego {
         int currentByte = 0;
         boolean readingLen = true;
 
-        for (int y = 0; y <= height - N; y += N) {
-            for (int x = 0; x <= width - N; x += N) {
-                
-                double[][] blueBlock = getBlueLayer(img, x, y);
-                double[][] dctBlock = applyDCT(blueBlock);
-                
-                // Texture-Adaptive Masking: Skip smooth blocks (same as encoding)
-                double variance = getBlockVariance(dctBlock);
-                if (variance < VARIANCE_THRESHOLD) {
-                    continue; // Skip this smooth block
-                }
+        // Process blocks in same randomized order as encoding
+        for (BlockCoord coord : blockCoords) {
+            double[][] blueBlock = getBlueLayer(img, coord.x, coord.y);
+            double[][] dctBlock = applyDCT(blueBlock);
 
-                for (int k = 0; k < 8; k++) {
-                    int bit = extractBitRobust(dctBlock, COEFF_X[k], COEFF_Y[k]);
-                    currentByte = (currentByte << 1) | bit;
-                    bitIndex++;
+            for (int k = 0; k < 8; k++) {
+                int bit = extractBitRobust(dctBlock, COEFF_X[k], COEFF_Y[k]);
+                currentByte = (currentByte << 1) | bit;
+                bitIndex++;
 
-                    if (bitIndex == 8) {
-                        if (readingLen) {
-                            if (byteIndex == 0) len |= (currentByte << 24);
-                            if (byteIndex == 1) len |= (currentByte << 16);
-                            if (byteIndex == 2) len |= (currentByte << 8);
-                            if (byteIndex == 3) {
-                                len |= currentByte;
-                                readingLen = false;
-                                
-                                // Validate Length to prevent crash
-                                if (len <= 0 || len > 200000) { 
-                                    System.err.println("⚠️ Error: Corruption detected in image header.");
-                                    return ""; 
-                                }
-                                data = new byte[len];
+                if (bitIndex == 8) {
+                    if (readingLen) {
+                        if (byteIndex == 0) len |= (currentByte << 24);
+                        if (byteIndex == 1) len |= (currentByte << 16);
+                        if (byteIndex == 2) len |= (currentByte << 8);
+                        if (byteIndex == 3) {
+                            len |= currentByte;
+                            readingLen = false;
+                            
+                            // Validate Length to prevent crash
+                            if (len <= 0 || len > 200000) { 
+                                System.err.println("⚠️ Error: Corruption detected in image header.");
+                                return ""; 
                             }
-                        } else {
-                            if (byteIndex - 4 < len) {
-                                data[byteIndex - 4] = (byte) currentByte;
-                            } else {
-                                return new String(data);
-                            }
+                            data = new byte[len];
                         }
-                        
-                        byteIndex++;
-                        bitIndex = 0;
-                        currentByte = 0;
-                        if (!readingLen && (byteIndex - 4) >= len) return new String(data);
+                    } else {
+                        if (byteIndex - 4 < len) {
+                            data[byteIndex - 4] = (byte) currentByte;
+                        } else {
+                            return new String(data);
+                        }
                     }
+                    
+                    byteIndex++;
+                    bitIndex = 0;
+                    currentByte = 0;
+                    if (!readingLen && (byteIndex - 4) >= len) return new String(data);
                 }
             }
         }

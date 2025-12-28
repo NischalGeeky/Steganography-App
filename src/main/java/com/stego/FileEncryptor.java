@@ -11,6 +11,50 @@ import java.security.*;
 
 public class FileEncryptor {
 
+    // Entropy threshold for cipher selection (bits per character)
+    // Words with entropy > THRESHOLD use AES-256 (High Security)
+    // Words with entropy <= THRESHOLD use Vigenère (Standard Security)
+    private static final double ENTROPY_THRESHOLD = 2.5;
+
+    /**
+     * Calculates Shannon entropy of a text string.
+     * Higher entropy indicates more randomness/importance.
+     * Reference: ACM TOMM 2025 - "Content-Aware Selective Encryption"
+     * 
+     * @param text The text to analyze
+     * @return Shannon entropy in bits per character
+     */
+    public static double calculateEntropy(String text) {
+        if (text == null || text.isEmpty()) {
+            return 0.0;
+        }
+        
+        // Count character frequencies
+        int[] charCounts = new int[256]; // ASCII character set
+        int totalChars = 0;
+        
+        for (char c : text.toCharArray()) {
+            if (Character.isLetterOrDigit(c) || !Character.isWhitespace(c)) {
+                charCounts[c & 0xFF]++;
+                totalChars++;
+            }
+        }
+        
+        if (totalChars == 0) {
+            return 0.0;
+        }
+        
+        // Calculate Shannon entropy: H(X) = -Σ p(x) * log2(p(x))
+        double entropy = 0.0;
+        for (int count : charCounts) {
+            if (count > 0) {
+                double frequency = (double) count / totalChars;
+                entropy -= frequency * (Math.log(frequency) / Math.log(2));
+            }
+        }
+        
+        return entropy;
+    }
     
     public static class Output{
         String finalOutput;
@@ -36,18 +80,16 @@ public class FileEncryptor {
 
             for (String word : words) {
                 String encryptedWord;
+                double entropy = calculateEntropy(word);
 
-                if (word.length() <= 2) {
-                    encryptedWord = caesarCipher(word, 3);
-                    System.out.println("Word: " + word + " -> (Caesar) -> " + encryptedWord);
-                }
-                else if (word.length() <= 5) {
-                    encryptedWord = vigenereCipher(word, vigenereKey);
-                    System.out.println("Word: " + word + " -> (Vigenere) -> " + encryptedWord);
-                }
-                else {
+                // Entropy-based cipher selection (replaces naive length-based check)
+                // High entropy -> AES-256 (High Security), Low entropy -> Vigenère (Standard Security)
+                if (entropy > ENTROPY_THRESHOLD) {
                     encryptedWord = aesEncrypt(word, aesKey);
-                    System.out.println("Word: " + word + " -> (AES) -> " + encryptedWord);
+                    System.out.println("Word: " + word + " [Entropy: " + String.format("%.2f", entropy) + "] -> (AES-256) -> " + encryptedWord);
+                } else {
+                    encryptedWord = vigenereCipher(word, vigenereKey);
+                    System.out.println("Word: " + word + " [Entropy: " + String.format("%.2f", entropy) + "] -> (Vigenère) -> " + encryptedWord);
                 }
 
                 finalOutput.append(encryptedWord).append(" ");

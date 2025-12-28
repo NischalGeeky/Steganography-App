@@ -156,7 +156,9 @@ public class FileEncryptor {
     }
 
     public static String aesEncrypt(String value, String key) throws Exception {
-        SecretKeySpec secretKey = new SecretKeySpec(key.getBytes(), "AES");
+        // Decode the Base64 key
+        byte[] keyBytes = Base64.getDecoder().decode(key);
+        SecretKeySpec secretKey = new SecretKeySpec(keyBytes, "AES");
         IvParameterSpec iv = new IvParameterSpec(new byte[16]); // Using zero IV for simplicity
         Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
         cipher.init(Cipher.ENCRYPT_MODE, secretKey, iv);

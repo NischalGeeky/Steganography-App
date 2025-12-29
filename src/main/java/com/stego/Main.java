@@ -5,6 +5,9 @@ import java.nio.file.Paths;
 import java.security.KeyPair;
 import java.security.PublicKey;
 import java.security.PrivateKey;
+import java.awt.image.BufferedImage;
+import java.io.File;
+import javax.imageio.ImageIO;
 import com.stego.FileEncryptor.Output;
 
 public class Main {
@@ -47,11 +50,56 @@ public class Main {
             keysOut += "\n" + secureAES + "\n" + secureVigenere;
             Files.write(Paths.get(KEY_FILE), keysOut.getBytes());
 
-            // --- 5. Image Steganography (DCT) ---
-            System.out.println("\n--- 5. Embedding Data (DCT) ---");
-            ImageStego.encode(IMAGE_FILE, OUTPUT_IMAGE_FILE, output.finalOutput);
+            // --- 5. Split-Payload Orchestration (DCT) ---
+            // Reference: ACM CCS 2025 - "Split Unlearning"
+            System.out.println("\n--- 5. Split-Payload Orchestration (DCT) ---");
             
-            System.out.println("\n Done! Check output.png");
+            String encryptedText = output.finalOutput;
+            int totalLen = encryptedText.length();
+            
+            // Split payload into 3 logical chunks: Header, Body, Metadata
+            int chunkSize = (totalLen + 2) / 3; // Divide into 3 parts with rounding
+            String chunk1 = encryptedText.substring(0, Math.min(chunkSize, totalLen));
+            String chunk2 = totalLen > chunkSize ? encryptedText.substring(chunkSize, Math.min(2 * chunkSize, totalLen)) : "";
+            String chunk3 = totalLen > 2 * chunkSize ? encryptedText.substring(2 * chunkSize) : "";
+            
+            System.out.println("Chunk 1 (Header) length: " + chunk1.length());
+            System.out.println("Chunk 2 (Body) length: " + chunk2.length());
+            System.out.println("Chunk 3 (Metadata) length: " + chunk3.length());
+            
+            // Load the base image
+            BufferedImage img = ImageIO.read(new File(IMAGE_FILE));
+            
+            // Embed Chunk 1 in Red Channel (low frequency)
+            System.out.println("Embedding Chunk 1 in RED channel...");
+            ImageStego.encode(IMAGE_FILE, OUTPUT_IMAGE_FILE + ".tmp1", chunk1, output.vigenereKey, ImageStego.CHANNEL_RED);
+            img = ImageIO.read(new File(OUTPUT_IMAGE_FILE + ".tmp1"));
+            
+            // Embed Chunk 2 in Green Channel (mid frequency)
+            if (!chunk2.isEmpty()) {
+                System.out.println("Embedding Chunk 2 in GREEN channel...");
+                // Create a temporary file with the current state
+                ImageIO.write(img, "png", new File(OUTPUT_IMAGE_FILE + ".tmp2"));
+                ImageStego.encode(OUTPUT_IMAGE_FILE + ".tmp2", OUTPUT_IMAGE_FILE + ".tmp1", chunk2, output.vigenereKey, ImageStego.CHANNEL_GREEN);
+                img = ImageIO.read(new File(OUTPUT_IMAGE_FILE + ".tmp1"));
+            }
+            
+            // Embed Chunk 3 in Blue Channel (high frequency)
+            if (!chunk3.isEmpty()) {
+                System.out.println("Embedding Chunk 3 in BLUE channel...");
+                // Create a temporary file with the current state
+                ImageIO.write(img, "png", new File(OUTPUT_IMAGE_FILE + ".tmp2"));
+                ImageStego.encode(OUTPUT_IMAGE_FILE + ".tmp2", OUTPUT_IMAGE_FILE, chunk3, output.vigenereKey, ImageStego.CHANNEL_BLUE);
+            } else {
+                // If chunk3 is empty, just save the current image
+                ImageIO.write(img, "png", new File(OUTPUT_IMAGE_FILE));
+            }
+            
+            // Clean up temporary files
+            new File(OUTPUT_IMAGE_FILE + ".tmp1").delete();
+            new File(OUTPUT_IMAGE_FILE + ".tmp2").delete();
+            
+            System.out.println("\n✅ Done! Check output.png");
 
         } catch (Exception e) {
             e.printStackTrace();

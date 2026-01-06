@@ -208,7 +208,7 @@ public class ImageStego {
                             
                             // Validate Length to prevent crash
                             if (len <= 0 || len > 200000) { 
-                                System.err.println("⚠️ Error: Corruption detected in image header.");
+                                // This is normal when processing non-steganographic images
                                 return ""; 
                             }
                             data = new byte[len];

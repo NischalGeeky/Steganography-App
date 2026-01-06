@@ -66,6 +66,10 @@ public class FileEncryptor {
             this.aesKey=aesKey;
             this.vigenereKey=vigenereKey;
         }
+        
+        public String getFinalOutput() { return finalOutput; }
+        public String getAesKey() { return aesKey; }
+        public String getVigenereKey() { return vigenereKey; }
     }
 
     public static Output encryptText(String content) throws Exception{

@@ -30,7 +30,7 @@ public class Main {
             // --- 2. Hybrid Encryption (Text) ---
             System.out.println("\n--- 2. Encrypting Text (Hybrid) ---");
             Output output = FileEncryptor.encryptText(content);
-            Files.write(Paths.get(ENC_FILE), output.finalOutput.getBytes());
+            Files.write(Paths.get(ENC_FILE), output.getFinalOutput().getBytes());
 
             // --- 3. Lattice Keys (Kyber) ---
             System.out.println("\n--- 3. Generating Lattice Keys (Kyber) ---");
@@ -44,8 +44,8 @@ public class Main {
             // --- 4. Encrypt Session Keys (Lattice) ---
             System.out.println("\n--- 4. Wrapping Keys with Kyber ---");
             // Now calling the updated HybridEncryptor
-            String secureAES = HybridEncryptor.encryptAESKey(output.aesKey, receiverPub);
-            String secureVigenere = HybridEncryptor.encryptAESKey(output.vigenereKey, receiverPub);
+            String secureAES = HybridEncryptor.encryptAESKey(output.getAesKey(), receiverPub);
+            String secureVigenere = HybridEncryptor.encryptAESKey(output.getVigenereKey(), receiverPub);
 
             keysOut += "\n" + secureAES + "\n" + secureVigenere;
             Files.write(Paths.get(KEY_FILE), keysOut.getBytes());
@@ -54,7 +54,7 @@ public class Main {
             // Reference: ACM CCS 2025 - "Split Unlearning"
             System.out.println("\n--- 5. Split-Payload Orchestration (DCT) ---");
             
-            String encryptedText = output.finalOutput;
+            String encryptedText = output.getFinalOutput();
             int totalLen = encryptedText.length();
             
             // Split payload into 3 logical chunks: Header, Body, Metadata
@@ -72,7 +72,7 @@ public class Main {
             
             // Embed Chunk 1 in Red Channel (low frequency)
             System.out.println("Embedding Chunk 1 in RED channel...");
-            ImageStego.encode(IMAGE_FILE, OUTPUT_IMAGE_FILE + ".tmp1", chunk1, output.vigenereKey, ImageStego.CHANNEL_RED);
+            ImageStego.encode(IMAGE_FILE, OUTPUT_IMAGE_FILE + ".tmp1", chunk1, output.getVigenereKey(), ImageStego.CHANNEL_RED);
             img = ImageIO.read(new File(OUTPUT_IMAGE_FILE + ".tmp1"));
             
             // Embed Chunk 2 in Green Channel (mid frequency)
@@ -80,7 +80,7 @@ public class Main {
                 System.out.println("Embedding Chunk 2 in GREEN channel...");
                 // Create a temporary file with the current state
                 ImageIO.write(img, "png", new File(OUTPUT_IMAGE_FILE + ".tmp2"));
-                ImageStego.encode(OUTPUT_IMAGE_FILE + ".tmp2", OUTPUT_IMAGE_FILE + ".tmp1", chunk2, output.vigenereKey, ImageStego.CHANNEL_GREEN);
+                ImageStego.encode(OUTPUT_IMAGE_FILE + ".tmp2", OUTPUT_IMAGE_FILE + ".tmp1", chunk2, output.getVigenereKey(), ImageStego.CHANNEL_GREEN);
                 img = ImageIO.read(new File(OUTPUT_IMAGE_FILE + ".tmp1"));
             }
             
@@ -89,7 +89,7 @@ public class Main {
                 System.out.println("Embedding Chunk 3 in BLUE channel...");
                 // Create a temporary file with the current state
                 ImageIO.write(img, "png", new File(OUTPUT_IMAGE_FILE + ".tmp2"));
-                ImageStego.encode(OUTPUT_IMAGE_FILE + ".tmp2", OUTPUT_IMAGE_FILE, chunk3, output.vigenereKey, ImageStego.CHANNEL_BLUE);
+                ImageStego.encode(OUTPUT_IMAGE_FILE + ".tmp2", OUTPUT_IMAGE_FILE, chunk3, output.getVigenereKey(), ImageStego.CHANNEL_BLUE);
             } else {
                 // If chunk3 is empty, just save the current image
                 ImageIO.write(img, "png", new File(OUTPUT_IMAGE_FILE));

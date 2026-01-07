@@ -1,1 +1,1 @@
-All the report and project files are present in this folder
+All the report and project related documentation is present in this folder

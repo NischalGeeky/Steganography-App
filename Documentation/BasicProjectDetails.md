@@ -1,6 +1,6 @@
 # Post-Quantum Secure Frequency-Domain Steganography
 
-This README consolidates **all major technical explanations, viva-style answers, and design justifications** discussed during the project defense preparation. It is intended as a **single revision and defense document**.
+This README consolidates **all major technical explanations, and design justifications** prepared during the project preparation. 
 
 ---
 
@@ -223,7 +223,7 @@ These are conscious trade-offs for robustness and quantum safety.
 
 ---
 
-## One-Line Closing Statement (Defense Ready)
+## One-Line Closing Statement
 
 > "Our framework integrates post-quantum cryptography with adaptive frequency-domain steganography to enable covert, quantum-resilient communication resistant to modern steganalysis techniques."
 

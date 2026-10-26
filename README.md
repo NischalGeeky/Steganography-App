@@ -83,10 +83,6 @@ src/main/resources/
 
 ## Technical Details
 
-### Encryption Strategy
-- Words with entropy > 3.8: Vigenere Cipher
-- Words with entropy ≤ 3.8: AES-256 encryption
-
 ### Steganography Method
 - 8x8 DCT blocks on selected color channels
 - Texture-adaptive masking (skips smooth regions)
